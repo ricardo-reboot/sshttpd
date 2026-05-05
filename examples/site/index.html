@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>SSH-Web Example Site</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Stack+Sans+Notch:wght@200..700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav style="padding: 0.75rem 1.5rem; font-family: system-ui, sans-serif; font-size: 0.9rem; background: rgba(255,255,255,0.04); border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <a href="/sandbox-block.html" style="color: #7dd3fc; text-decoration: none; margin-right: 1.5rem;">Sandbox Block Tests</a>
+        <a href="/sandbox-allow.html" style="color: #7dd3fc; text-decoration: none;">Sandbox Allow Test</a>
+    </nav>
+    <header>
+        <h1 class="stack-sans-notch">SSH-Web Example</h1>
+        <p>This page was delivered via the SSH-Web protocol.</p>
+    </header>
+    <main>
+        <article>
+            <h2 class="stack-sans-notch">How it works</h2>
+            <p>Your browser connected to this server over SSH on port 22443,
+            received a capabilities manifest, then fetched this page as a
+            Git packfile. All resources — HTML, CSS, images — arrived in a
+            single compressed stream.</p>
+
+            <p>On your next visit, only the changes will be transferred.</p>
+            <img src="https://i.pinimg.com/originals/a5/01/50/a501505d9ec789d10c370cfc47c58995.png" alt="cat" />
+        </article>
+    </main>
+</body>
+</html>
