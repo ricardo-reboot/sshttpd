@@ -11,6 +11,8 @@ plugin/bin/
 .DS_Store
 *.swp
 *~
+.idea/
+__pycache__/
 
 # Companion sshweb-browser project — has its own repo (Ladybird fork).
 sshweb-browser/

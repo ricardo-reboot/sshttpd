@@ -41,6 +41,14 @@ Key properties:
 - [x] `mcp` tool dispatch with parameter validation + backend forwarding
 - [x] `rss-feed`, `sitemap`, `robots` discovery commands
 - [x] Multi-site listeners on distinct ports
+- [x] Identity wiring: browser identity selection → SSH publickey auth end-to-end
+- [x] Key registration flow with dynamic `authorized-keys` reload
+- [x] Server-side redirects (302) with URL bar update in browser
+- [x] Pubkey + display name forwarding to backend via `X-SSHWeb-PubKey`
+- [x] Tier-gated content (per-post access control in demo backend)
+- [x] SSH connection pool clear on page reload (fresh auth on navigate)
+- [ ] `stdio` command handlers — spawn processes with stdin/stdout wired to SSH channel, bypassing HTTP framing entirely (CGI-over-SSH)
+- [ ] File downloads — `Content-Disposition: attachment` handling in browser, save dialog
 - [ ] Incremental `receive-pack` (`--have` over the wire)
 - [ ] On-disk `proxy-cache` storage (currently in-memory)
 - [ ] SNI-style routing of multiple sites on a shared port
