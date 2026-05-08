@@ -208,11 +208,11 @@ func (p *parser) parseSite() (*SiteConfig, error) {
 			}
 			site.Meta = *meta
 		case "mcp":
-			tools, err := p.parseMCP()
+			mcp, err := p.parseMCP()
 			if err != nil {
 				return nil, err
 			}
-			site.MCP = tools
+			site.MCP = mcp
 		case "proxy-cache":
 			pc, err := p.parseProxyCache()
 			if err != nil {
@@ -324,56 +324,108 @@ func (p *parser) parseMeta() (*MetaConfig, error) {
 	}
 }
 
-func (p *parser) parseMCP() ([]MCPTool, error) {
+func (p *parser) parseMCP() (*MCPConfig, error) {
 	if err := p.expectByte('{'); err != nil {
 		return nil, err
 	}
 
-	var tools []MCPTool
+	mcpCfg := &MCPConfig{}
 	for {
 		p.skipWhitespace()
 		if p.peek() == '}' {
 			p.advance()
-			return tools, nil
+			break
 		}
 
 		keyword := p.readWord()
-		if keyword != "tool" {
-			return nil, fmt.Errorf("line %d: expected 'tool' in mcp block, got %q", p.line, keyword)
-		}
-
-		name := p.readWord()
-		tool := MCPTool{Name: name}
-
-		// Read the { params: [...] } block
-		p.skipWhitespace()
-		if p.peek() == '{' {
-			p.advance()
-			// Read until closing }
-			for {
+		switch keyword {
+		case "server":
+			transport := p.readWord()
+			switch transport {
+			case "stdio":
+				mcpCfg.Transport = "stdio"
 				p.skipWhitespace()
-				if p.peek() == '}' {
-					p.advance()
-					break
+				cmd, err := p.readQuotedString()
+				if err != nil {
+					return nil, fmt.Errorf("line %d: mcp server stdio: %w", p.line, err)
 				}
-				key := p.readWord()
-				if key == "params:" {
-					list, err := p.readBracketList()
-					if err != nil {
-						return nil, err
-					}
-					for _, paramName := range list {
-						tool.Params = append(tool.Params, MCPParam{Name: paramName, Type: "string", Required: true})
-					}
-				} else {
-					// Skip unknown key
-					p.readUntilNewline()
-				}
+				mcpCfg.Command = cmd
+			case "http":
+				mcpCfg.Transport = "http"
+				mcpCfg.URL = p.readWord()
+			default:
+				return nil, fmt.Errorf("line %d: unknown mcp transport %q (expected stdio or http)", p.line, transport)
 			}
+		case "auth":
+			auth, err := p.parseMCPAuth()
+			if err != nil {
+				return nil, err
+			}
+			mcpCfg.Auth = *auth
+		default:
+			return nil, fmt.Errorf("line %d: unknown directive in mcp block: %q", p.line, keyword)
+		}
+	}
+
+	if mcpCfg.Transport == "" {
+		return nil, fmt.Errorf("mcp block requires a server directive")
+	}
+	return mcpCfg, nil
+}
+
+func (p *parser) parseMCPAuth() (*MCPAuthConfig, error) {
+	if err := p.expectByte('{'); err != nil {
+		return nil, err
+	}
+
+	auth := &MCPAuthConfig{}
+	for {
+		p.skipWhitespace()
+		if p.peek() == '}' {
+			p.advance()
+			return auth, nil
 		}
 
-		tools = append(tools, tool)
+		tier := p.readWord()
+		p.skipWhitespace()
+		list, err := p.readBracketList()
+		if err != nil {
+			return nil, fmt.Errorf("line %d: parsing mcp auth list for %s: %w", p.line, tier, err)
+		}
+
+		switch tier {
+		case "anonymous":
+			auth.Anonymous = list
+		case "identified":
+			auth.Identified = list
+		case "trusted":
+			auth.Trusted = list
+		default:
+			return nil, fmt.Errorf("line %d: unknown mcp auth tier: %q", p.line, tier)
+		}
 	}
+}
+
+// readQuotedString reads a "..." string, handling escaped quotes.
+func (p *parser) readQuotedString() (string, error) {
+	if p.pos >= len(p.input) || p.peek() != '"' {
+		return "", fmt.Errorf("expected '\"'")
+	}
+	p.advance() // opening quote
+
+	var sb strings.Builder
+	for p.pos < len(p.input) {
+		ch := p.advance()
+		if ch == '\\' && p.pos < len(p.input) {
+			sb.WriteByte(p.advance())
+			continue
+		}
+		if ch == '"' {
+			return sb.String(), nil
+		}
+		sb.WriteByte(ch)
+	}
+	return "", fmt.Errorf("unterminated string")
 }
 
 func (p *parser) parseProxyCache() (*ProxyCacheConfig, error) {

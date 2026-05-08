@@ -1,14 +1,11 @@
 package backend
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/bugscave/sshttpd/internal/config"
 )
 
 func TestNew_EmptyURLReturnsNil(t *testing.T) {
@@ -82,29 +79,3 @@ func TestAPICall_PropagatesUpstreamErrors(t *testing.T) {
 	}
 }
 
-func TestInvokeMCP_PostsJSONAtToolPath(t *testing.T) {
-	var gotPath string
-	var gotBody map[string]string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		_ = json.NewDecoder(r.Body).Decode(&gotBody)
-		_, _ = w.Write([]byte(`{"posted":true}`))
-	}))
-	defer srv.Close()
-
-	b, _ := New(srv.URL)
-	tool := &config.MCPTool{Name: "submit_story"}
-	out, err := b.InvokeMCP(tool, map[string]string{"title": "hi", "url": "https://x"}, "")
-	if err != nil {
-		t.Fatalf("InvokeMCP: %v", err)
-	}
-	if gotPath != "/mcp/submit_story" {
-		t.Errorf("path=%q want /mcp/submit_story", gotPath)
-	}
-	if gotBody["title"] != "hi" || gotBody["url"] != "https://x" {
-		t.Errorf("body params not forwarded: %v", gotBody)
-	}
-	if !strings.Contains(out, "posted") {
-		t.Errorf("response=%q expected to contain 'posted'", out)
-	}
-}

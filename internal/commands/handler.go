@@ -15,16 +15,18 @@ import (
 	"github.com/bugscave/sshttpd/internal/auth"
 	"github.com/bugscave/sshttpd/internal/backend"
 	"github.com/bugscave/sshttpd/internal/config"
+	"github.com/bugscave/sshttpd/internal/mcpproxy"
 	"github.com/bugscave/sshttpd/internal/packfile"
 	"github.com/bugscave/sshttpd/internal/proxy"
 )
 
 // Handler dispatches SSH-Web commands to their implementations for a single site.
 type Handler struct {
-	cfg     *config.Config
-	siteIdx int
-	backend *backend.Backend
-	proxy   *proxy.Cache
+	cfg      *config.Config
+	siteIdx  int
+	backend  *backend.Backend
+	proxy    *proxy.Cache
+	mcpProxy *mcpproxy.Proxy
 }
 
 // NewHandler creates a command handler bound to cfg.Sites[0]. Equivalent to
@@ -53,11 +55,20 @@ func NewHandlerForSite(cfg *config.Config, siteIdx int) (*Handler, error) {
 		pc = proxy.NewCache(site.ProxyCache)
 	}
 
+	var mp *mcpproxy.Proxy
+	if site.MCP != nil && site.MCP.Transport == "stdio" {
+		mp, err = mcpproxy.Start(site.MCP.Command)
+		if err != nil {
+			return nil, fmt.Errorf("starting mcp server: %w", err)
+		}
+	}
+
 	return &Handler{
-		cfg:     cfg,
-		siteIdx: siteIdx,
-		backend: b,
-		proxy:   pc,
+		cfg:      cfg,
+		siteIdx:  siteIdx,
+		backend:  b,
+		proxy:    pc,
+		mcpProxy: mp,
 	}, nil
 }
 
@@ -219,26 +230,24 @@ func (h *Handler) capabilities() (string, error) {
 		}
 	}
 
-	// MCP tools.
-	if len(site.MCP) > 0 {
+	// MCP tools — sourced from the proxied MCP server.
+	if h.mcpProxy != nil {
 		tools := []map[string]interface{}{}
-		for _, tool := range site.MCP {
+		for _, tool := range h.mcpProxy.Tools() {
 			t := map[string]interface{}{
 				"name": tool.Name,
-				"auth": tool.Auth,
 			}
 			if tool.Description != "" {
 				t["description"] = tool.Description
 			}
-			if len(tool.Params) > 0 {
-				params := map[string]interface{}{}
-				for _, p := range tool.Params {
-					params[p.Name] = map[string]interface{}{
-						"type":     p.Type,
-						"required": p.Required,
-					}
+			if len(tool.InputSchema) > 0 {
+				var schema interface{}
+				if json.Unmarshal(tool.InputSchema, &schema) == nil {
+					t["inputSchema"] = schema
 				}
-				t["params"] = params
+			}
+			if site.MCP != nil {
+				t["auth"] = mcpToolTier(tool.Name, &site.MCP.Auth)
 			}
 			tools = append(tools, t)
 		}
@@ -530,59 +539,48 @@ func (h *Handler) robots() (string, error) {
 	return string(data), nil
 }
 
-// mcp invokes a configured MCP tool. The first arg is the tool name; remaining
-// args are key=value parameter assignments. For now this validates the request
-// against the configured tool schema and (when configured) forwards the call
-// to a backend HTTP endpoint via h.backend.
+// mcp invokes a tool on the proxied MCP server. The first arg is the tool name;
+// remaining args are key=value parameter pairs forwarded as tool arguments.
 func (h *Handler) mcp(args []string) (string, error) {
 	if len(args) == 0 {
 		return "", fmt.Errorf("usage: mcp TOOL_NAME [key=value...]")
 	}
-	site := h.site()
+	if h.mcpProxy == nil {
+		return "", fmt.Errorf("mcp: no mcp server configured")
+	}
+
 	toolName := args[0]
 
-	var tool *config.MCPTool
-	for i := range site.MCP {
-		if site.MCP[i].Name == toolName {
-			tool = &site.MCP[i]
-			break
-		}
-	}
-	if tool == nil {
-		return "", fmt.Errorf("unknown MCP tool: %s", toolName)
-	}
-
-	// Parse key=value pairs.
-	params := map[string]string{}
+	arguments := map[string]interface{}{}
 	for _, kv := range args[1:] {
 		eq := strings.IndexByte(kv, '=')
 		if eq <= 0 {
 			return "", fmt.Errorf("invalid mcp argument %q (expected key=value)", kv)
 		}
-		params[kv[:eq]] = kv[eq+1:]
+		arguments[kv[:eq]] = kv[eq+1:]
 	}
 
-	// Validate required params.
-	for _, p := range tool.Params {
-		if p.Required {
-			if _, ok := params[p.Name]; !ok {
-				return "", fmt.Errorf("missing required parameter: %s", p.Name)
-			}
+	return h.mcpProxy.CallTool(toolName, arguments)
+}
+
+// mcpToolTier returns the lowest auth tier that allows a given MCP tool.
+func mcpToolTier(toolName string, mcpAuth *config.MCPAuthConfig) string {
+	for _, name := range mcpAuth.Anonymous {
+		if name == toolName {
+			return auth.TierAnonymous
 		}
 	}
-
-	// If a backend is configured, forward the call as a POST.
-	if h.backend != nil {
-		return h.backend.InvokeMCP(tool, params, "")
+	for _, name := range mcpAuth.Identified {
+		if name == toolName {
+			return auth.TierIdentified
+		}
 	}
-
-	// No backend: echo the validated invocation as a placeholder result.
-	body, _ := json.MarshalIndent(map[string]interface{}{
-		"tool":   toolName,
-		"params": params,
-		"status": "validated (no backend configured)",
-	}, "", "  ")
-	return string(body), nil
+	for _, name := range mcpAuth.Trusted {
+		if name == toolName {
+			return auth.TierTrusted
+		}
+	}
+	return auth.TierAnonymous
 }
 
 // apiCall forwards an api-call to the configured HTTP backend.

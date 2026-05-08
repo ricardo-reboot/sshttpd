@@ -23,7 +23,7 @@ type SiteConfig struct {
 	ProxyCache ProxyCacheConfig
 	Auth       AuthConfig
 	Limits     LimitsConfig
-	MCP        []MCPTool
+	MCP        *MCPConfig
 	Meta       MetaConfig
 }
 
@@ -62,19 +62,20 @@ type LimitsConfig struct {
 	Trusted    string
 }
 
-// MCPTool defines an MCP-compatible tool exposed by the server.
-type MCPTool struct {
-	Name        string
-	Description string
-	Params      []MCPParam
-	Auth        string
+// MCPConfig defines how sshttpd proxies to an existing MCP server.
+type MCPConfig struct {
+	Transport string // "stdio" or "http"
+	Command   string // for stdio: the shell command to spawn
+	URL       string // for http: the endpoint URL
+	Auth      MCPAuthConfig
 }
 
-// MCPParam defines a parameter for an MCP tool.
-type MCPParam struct {
-	Name     string
-	Type     string
-	Required bool
+// MCPAuthConfig maps auth tiers to lists of allowed tool names.
+// Tools not listed in any tier default to the site-wide auth rules.
+type MCPAuthConfig struct {
+	Anonymous  []string
+	Identified []string
+	Trusted    []string
 }
 
 // MetaConfig holds discovery metadata configuration.

@@ -45,8 +45,11 @@ site example.com {
     }
 
     mcp {
-        tool list_posts
-        tool create_post
+        server stdio "python3 my_mcp.py"
+        auth {
+            anonymous  [list_posts]
+            identified [create_post]
+        }
     }
 }
 `
@@ -88,8 +91,14 @@ site example.com {
 	if site.Meta.Robots.CrawlDelay != 10 {
 		t.Errorf("robots.crawl-delay=%d", site.Meta.Robots.CrawlDelay)
 	}
-	if len(site.MCP) != 2 {
-		t.Errorf("expected 2 mcp tools, got %d", len(site.MCP))
+	if site.MCP == nil || site.MCP.Transport != "stdio" || site.MCP.Command != "python3 my_mcp.py" {
+		t.Errorf("mcp=%+v", site.MCP)
+	}
+	if len(site.MCP.Auth.Anonymous) != 1 || site.MCP.Auth.Anonymous[0] != "list_posts" {
+		t.Errorf("mcp.auth.anonymous=%v", site.MCP.Auth.Anonymous)
+	}
+	if len(site.MCP.Auth.Identified) != 1 || site.MCP.Auth.Identified[0] != "create_post" {
+		t.Errorf("mcp.auth.identified=%v", site.MCP.Auth.Identified)
 	}
 }
 

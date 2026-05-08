@@ -12,15 +12,12 @@ package backend
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/bugscave/sshttpd/internal/config"
 )
 
 // Backend forwards SSH-Web commands to an HTTP upstream.
@@ -98,15 +95,3 @@ func (b *Backend) FetchResource(path string) (*http.Response, error) {
 	return resp, nil
 }
 
-// InvokeMCP forwards an MCP tool invocation as POST /mcp/<tool> with params as JSON.
-func (b *Backend) InvokeMCP(tool *config.MCPTool, params map[string]string, identityHeader string) (string, error) {
-	body, err := json.Marshal(params)
-	if err != nil {
-		return "", fmt.Errorf("marshaling mcp params: %w", err)
-	}
-	resp, _, err := b.APICall("POST", "/mcp/"+tool.Name, body, identityHeader)
-	if err != nil {
-		return "", err
-	}
-	return string(resp), nil
-}
