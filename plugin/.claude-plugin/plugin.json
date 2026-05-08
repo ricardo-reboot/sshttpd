@@ -1,0 +1,19 @@
+{
+  "name": "sshweb",
+  "description": "SSH-Web protocol integration for Claude Code. Dynamically discovers and exposes MCP tools from any SSH-Web site.",
+  "version": "0.1.0",
+  "author": {
+    "name": "rmoura",
+    "email": "ricardo-reboot@tuta.io"
+  },
+  "homepage": "https://github.com/ricardo-reboot/sshttpd",
+  "repository": "https://github.com/ricardo-reboot/sshttpd",
+  "license": "Apache-2.0",
+  "keywords": ["ssh", "ssh-web", "mcp", "sshttpd", "protocol"],
+  "mcpServers": {
+    "sshweb": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/sshweb-mcp",
+      "args": []
+    }
+  }
+}

@@ -1,5 +1,7 @@
-# Compiled binary at repo root (does not match cmd/sshttpd/)
+# Compiled binaries
 /sshttpd
+bin/
+plugin/bin/
 
 # Generated host keys / private material
 /keys/
