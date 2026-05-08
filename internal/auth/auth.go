@@ -29,25 +29,35 @@ const (
 //	tier=trusted ssh-ed25519 AAAAC3Nz... admin@example
 //	ssh-ed25519 AAAAC3Nz... regular-user
 type AuthorizedKeys struct {
-	mu      sync.RWMutex
-	entries map[string]string // fingerprint -> tier
+	mu       sync.RWMutex
+	entries  map[string]string // fingerprint -> tier
+	comments map[string]string // fingerprint -> comment (display name)
+	path     string
 }
 
 // LoadAuthorizedKeys reads an authorized_keys file and indexes entries by
 // SHA256 fingerprint. Empty path returns an empty store (every presented key
 // will fall through to the default tier).
 func LoadAuthorizedKeys(path string) (*AuthorizedKeys, error) {
-	ak := &AuthorizedKeys{entries: map[string]string{}}
+	ak := &AuthorizedKeys{entries: map[string]string{}, comments: map[string]string{}, path: path}
 	if path == "" {
 		return ak, nil
 	}
+	if err := ak.loadFromDisk(); err != nil {
+		return nil, err
+	}
+	return ak, nil
+}
 
-	f, err := os.Open(path)
+func (a *AuthorizedKeys) loadFromDisk() error {
+	f, err := os.Open(a.path)
 	if err != nil {
-		return nil, fmt.Errorf("opening authorized keys %s: %w", path, err)
+		return fmt.Errorf("opening authorized keys %s: %w", a.path, err)
 	}
 	defer f.Close()
 
+	entries := map[string]string{}
+	comments := map[string]string{}
 	scanner := bufio.NewScanner(f)
 	lineNo := 0
 	for scanner.Scan() {
@@ -58,33 +68,49 @@ func LoadAuthorizedKeys(path string) (*AuthorizedKeys, error) {
 		}
 
 		tier := TierIdentified
-		// Detect a leading `tier=...` token before the SSH key.
 		if strings.HasPrefix(line, "tier=") {
 			fields := strings.SplitN(line, " ", 2)
 			if len(fields) != 2 {
-				return nil, fmt.Errorf("authorized keys line %d: tier= without key", lineNo)
+				return fmt.Errorf("authorized keys line %d: tier= without key", lineNo)
 			}
 			tierField := strings.TrimPrefix(fields[0], "tier=")
 			switch tierField {
 			case TierIdentified, TierTrusted:
 				tier = tierField
 			default:
-				return nil, fmt.Errorf("authorized keys line %d: unknown tier %q", lineNo, tierField)
+				return fmt.Errorf("authorized keys line %d: unknown tier %q", lineNo, tierField)
 			}
 			line = fields[1]
 		}
 
-		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+		key, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
 		if err != nil {
-			return nil, fmt.Errorf("authorized keys line %d: %w", lineNo, err)
+			return fmt.Errorf("authorized keys line %d: %w", lineNo, err)
 		}
 		fp := ssh.FingerprintSHA256(key)
-		ak.entries[fp] = tier
+		entries[fp] = tier
+		if comment != "" {
+			comments[fp] = comment
+		}
 	}
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading authorized keys: %w", err)
+		return fmt.Errorf("reading authorized keys: %w", err)
 	}
-	return ak, nil
+
+	a.mu.Lock()
+	a.entries = entries
+	a.comments = comments
+	a.mu.Unlock()
+	return nil
+}
+
+// Reload re-reads the authorized keys file from disk.
+// Errors are logged but don't prevent subsequent auth checks.
+func (a *AuthorizedKeys) Reload() {
+	if a == nil || a.path == "" {
+		return
+	}
+	_ = a.loadFromDisk()
 }
 
 // Tier returns the tier configured for the given key, or empty string if the
@@ -96,6 +122,16 @@ func (a *AuthorizedKeys) Tier(key ssh.PublicKey) string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.entries[ssh.FingerprintSHA256(key)]
+}
+
+// Comment returns the comment (display name) for the given key from authorized_keys.
+func (a *AuthorizedKeys) Comment(key ssh.PublicKey) string {
+	if a == nil || key == nil {
+		return ""
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.comments[ssh.FingerprintSHA256(key)]
 }
 
 // ClassifyKey determines the authentication tier for a given public key.

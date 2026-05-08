@@ -75,11 +75,17 @@ func newSiteListener(cfg *config.Config, idx int) (*siteListener, error) {
 	sshCfg := &ssh.ServerConfig{
 		NoClientAuth: true,
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			authorizedKeys.Reload()
 			tier := auth.ClassifyKey(key, &site.Auth, authorizedKeys)
+			publine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+			if comment := authorizedKeys.Comment(key); comment != "" {
+				publine += " " + comment
+			}
 			return &ssh.Permissions{
 				Extensions: map[string]string{
 					"auth-tier":       tier,
 					"key-fingerprint": ssh.FingerprintSHA256(key),
+					"public-key":      publine,
 				},
 			}, nil
 		},
@@ -185,11 +191,13 @@ func (s *Server) handleConnection(sl *siteListener, netConn net.Conn) {
 
 	tier := auth.TierAnonymous
 	fingerprint := ""
+	pubkey := ""
 	if sshConn.Permissions != nil {
 		if t, ok := sshConn.Permissions.Extensions["auth-tier"]; ok {
 			tier = t
 		}
 		fingerprint = sshConn.Permissions.Extensions["key-fingerprint"]
+		pubkey = sshConn.Permissions.Extensions["public-key"]
 	}
 
 	log.Printf("[%s] connection from %s (user=%s, tier=%s, fp=%s)",
@@ -209,16 +217,27 @@ func (s *Server) handleConnection(sl *siteListener, netConn net.Conn) {
 			continue
 		}
 
-		go s.handleSession(sl, channel, requests, tier, fingerprint)
+		go s.handleSession(sl, channel, requests, tier, fingerprint, pubkey)
 	}
 }
 
-func (s *Server) handleSession(sl *siteListener, channel ssh.Channel, requests <-chan *ssh.Request, tier, fingerprint string) {
+func (s *Server) handleSession(sl *siteListener, channel ssh.Channel, requests <-chan *ssh.Request, tier, fingerprint, pubkey string) {
 	defer channel.Close()
 
-	sess := commands.SessionInfo{Tier: tier, Fingerprint: fingerprint}
+	sess := commands.SessionInfo{Tier: tier, Fingerprint: fingerprint, PublicKey: pubkey}
 	for req := range requests {
 		switch req.Type {
+		case "env":
+			// SSH env request: [uint32 name_len][name][uint32 value_len][value]
+			if name, value, ok := parseEnvPayload(req.Payload); ok {
+				if name == "SSHWEB_PUBKEY" {
+					sess.PublicKey = value
+				}
+				req.Reply(true, nil)
+			} else {
+				req.Reply(false, nil)
+			}
+
 		case "exec":
 			if len(req.Payload) < 4 {
 				req.Reply(false, nil)
@@ -276,6 +295,25 @@ func (s *Server) executeCommand(sl *siteListener, channel ssh.Channel, cmd strin
 	}
 	log.Printf("[%s] (tier=%s) ok in %s: %s", sl.site.Host, sess.Tier, elapsed, parts[0])
 	channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+}
+
+func parseEnvPayload(payload []byte) (name, value string, ok bool) {
+	if len(payload) < 4 {
+		return "", "", false
+	}
+	nameLen := int(payload[0])<<24 | int(payload[1])<<16 | int(payload[2])<<8 | int(payload[3])
+	if len(payload) < 4+nameLen+4 {
+		return "", "", false
+	}
+	name = string(payload[4 : 4+nameLen])
+	off := 4 + nameLen
+	valLen := int(payload[off])<<24 | int(payload[off+1])<<16 | int(payload[off+2])<<8 | int(payload[off+3])
+	off += 4
+	if len(payload) < off+valLen {
+		return "", "", false
+	}
+	value = string(payload[off : off+valLen])
+	return name, value, true
 }
 
 func (s *Server) interactiveSession(sl *siteListener, channel ssh.Channel, sess commands.SessionInfo) {

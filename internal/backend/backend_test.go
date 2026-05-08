@@ -37,7 +37,7 @@ func TestAPICall_ForwardsMethodPathAndBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, status, err := b.APICall("POST", "/api/items", []byte(`{"x":1}`), "identified", "SHA256:abc123")
+	resp, status, err := b.APICall("POST", "/api/items", []byte(`{"x":1}`), "identified", "SHA256:abc123", "ssh-ed25519 AAAA... testuser")
 	if err != nil {
 		t.Fatalf("APICall: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestAPICall_PropagatesUpstreamErrors(t *testing.T) {
 	defer srv.Close()
 
 	b, _ := New(srv.URL)
-	body, status, err := b.APICall("GET", "/x", nil, "", "")
+	body, status, err := b.APICall("GET", "/x", nil, "", "", "")
 	if err == nil {
 		t.Fatalf("expected error for upstream 502")
 	}

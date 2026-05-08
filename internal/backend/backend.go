@@ -36,6 +36,9 @@ func New(baseURL string) (*Backend, error) {
 		BaseURL: strings.TrimSuffix(baseURL, "/"),
 		Client: &http.Client{
 			Timeout: 30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		},
 	}, nil
 }
@@ -43,7 +46,7 @@ func New(baseURL string) (*Backend, error) {
 // APICall forwards an api-call to the backend as method+path with the given body.
 // SSH session identity is forwarded via X-SSHWeb-Tier and X-SSHWeb-Fingerprint headers
 // so the backend can make authorization and content decisions.
-func (b *Backend) APICall(method, path string, body []byte, tier, fingerprint string) ([]byte, int, error) {
+func (b *Backend) APICall(method, path string, body []byte, tier, fingerprint, pubkey string) ([]byte, int, error) {
 	target := b.BaseURL + path
 	req, err := http.NewRequest(method, target, bytes.NewReader(body))
 	if err != nil {
@@ -57,6 +60,9 @@ func (b *Backend) APICall(method, path string, body []byte, tier, fingerprint st
 	}
 	if fingerprint != "" {
 		req.Header.Set("X-SSHWeb-Fingerprint", fingerprint)
+	}
+	if pubkey != "" {
+		req.Header.Set("X-SSHWeb-PubKey", pubkey)
 	}
 	resp, err := b.Client.Do(req)
 	if err != nil {
@@ -76,7 +82,7 @@ func (b *Backend) APICall(method, path string, body []byte, tier, fingerprint st
 
 // FetchResource performs a GET to <BaseURL><path> and returns the live *http.Response.
 // The caller is responsible for draining and closing the response body.
-func (b *Backend) FetchResource(path, tier, fingerprint string) (*http.Response, error) {
+func (b *Backend) FetchResource(path, tier, fingerprint, pubkey string) (*http.Response, error) {
 	target := b.BaseURL + path
 	req, err := http.NewRequest(http.MethodGet, target, nil)
 	if err != nil {
@@ -87,6 +93,9 @@ func (b *Backend) FetchResource(path, tier, fingerprint string) (*http.Response,
 	}
 	if fingerprint != "" {
 		req.Header.Set("X-SSHWeb-Fingerprint", fingerprint)
+	}
+	if pubkey != "" {
+		req.Header.Set("X-SSHWeb-PubKey", pubkey)
 	}
 	resp, err := b.Client.Do(req)
 	if err != nil {

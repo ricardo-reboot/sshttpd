@@ -82,6 +82,7 @@ func (h *Handler) site() config.SiteConfig {
 type SessionInfo struct {
 	Tier        string // "anonymous", "identified", or "trusted"
 	Fingerprint string // SHA256 key fingerprint, empty for anonymous
+	PublicKey   string // OpenSSH authorized_keys format (with comment), empty for anonymous
 }
 
 // Execute runs a command and returns the response string (text-mode for interactive sessions).
@@ -319,7 +320,7 @@ func (h *Handler) receivePackBinary(args []string, sess SessionInfo, w io.Writer
 		path = args[0]
 	}
 
-	resp, err := h.backend.FetchResource(path, sess.Tier, sess.Fingerprint)
+	resp, err := h.backend.FetchResource(path, sess.Tier, sess.Fingerprint, sess.PublicKey)
 	if err != nil {
 		return err
 	}
@@ -614,7 +615,7 @@ func (h *Handler) apiCall(args []string, sess SessionInfo) (string, error) {
 		body = []byte(strings.Join(args[2:], " "))
 	}
 
-	resp, status, err := h.backend.APICall(method, path, body, sess.Tier, sess.Fingerprint)
+	resp, status, err := h.backend.APICall(method, path, body, sess.Tier, sess.Fingerprint, sess.PublicKey)
 	if err != nil {
 		return "", fmt.Errorf("backend error (status %d): %w; body=%s", status, err, string(resp))
 	}
