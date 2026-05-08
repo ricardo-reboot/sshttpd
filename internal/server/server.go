@@ -209,13 +209,14 @@ func (s *Server) handleConnection(sl *siteListener, netConn net.Conn) {
 			continue
 		}
 
-		go s.handleSession(sl, channel, requests, tier)
+		go s.handleSession(sl, channel, requests, tier, fingerprint)
 	}
 }
 
-func (s *Server) handleSession(sl *siteListener, channel ssh.Channel, requests <-chan *ssh.Request, tier string) {
+func (s *Server) handleSession(sl *siteListener, channel ssh.Channel, requests <-chan *ssh.Request, tier, fingerprint string) {
 	defer channel.Close()
 
+	sess := commands.SessionInfo{Tier: tier, Fingerprint: fingerprint}
 	for req := range requests {
 		switch req.Type {
 		case "exec":
@@ -232,12 +233,12 @@ func (s *Server) handleSession(sl *siteListener, channel ssh.Channel, requests <
 			cmd := string(req.Payload[4 : 4+cmdLen])
 			req.Reply(true, nil)
 
-			s.executeCommand(sl, channel, cmd, tier)
+			s.executeCommand(sl, channel, cmd, sess)
 			return
 
 		case "shell":
 			req.Reply(true, nil)
-			s.interactiveSession(sl, channel, tier)
+			s.interactiveSession(sl, channel, sess)
 			return
 
 		default:
@@ -246,39 +247,39 @@ func (s *Server) handleSession(sl *siteListener, channel ssh.Channel, requests <
 	}
 }
 
-func (s *Server) executeCommand(sl *siteListener, channel ssh.Channel, cmd string, tier string) {
+func (s *Server) executeCommand(sl *siteListener, channel ssh.Channel, cmd string, sess commands.SessionInfo) {
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
-		log.Printf("[%s] (tier=%s) exec: <empty>", sl.site.Host, tier)
+		log.Printf("[%s] (tier=%s) exec: <empty>", sl.site.Host, sess.Tier)
 		fmt.Fprintf(channel.Stderr(), "error: empty command\n")
 		channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{2}))
 		return
 	}
 
-	log.Printf("[%s] (tier=%s) exec: %s %s", sl.site.Host, tier, parts[0], strings.Join(parts[1:], " "))
+	log.Printf("[%s] (tier=%s) exec: %s %s", sl.site.Host, sess.Tier, parts[0], strings.Join(parts[1:], " "))
 
-	if !sl.limiter.Allow(tier) {
-		log.Printf("[%s] (tier=%s) rate-limited: %s", sl.site.Host, tier, parts[0])
-		fmt.Fprintf(channel.Stderr(), "error: rate limit exceeded for tier %q\n", tier)
+	if !sl.limiter.Allow(sess.Tier) {
+		log.Printf("[%s] (tier=%s) rate-limited: %s", sl.site.Host, sess.Tier, parts[0])
+		fmt.Fprintf(channel.Stderr(), "error: rate limit exceeded for tier %q\n", sess.Tier)
 		channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{3}))
 		return
 	}
 
 	start := time.Now()
-	err := sl.handler.ExecuteBinary(parts[0], parts[1:], tier, channel)
+	err := sl.handler.ExecuteBinary(parts[0], parts[1:], sess, channel)
 	elapsed := time.Since(start)
 	if err != nil {
-		log.Printf("[%s] (tier=%s) error after %s: %v", sl.site.Host, tier, elapsed, err)
+		log.Printf("[%s] (tier=%s) error after %s: %v", sl.site.Host, sess.Tier, elapsed, err)
 		fmt.Fprintf(channel.Stderr(), "error: %v\n", err)
 		channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{1}))
 		return
 	}
-	log.Printf("[%s] (tier=%s) ok in %s: %s", sl.site.Host, tier, elapsed, parts[0])
+	log.Printf("[%s] (tier=%s) ok in %s: %s", sl.site.Host, sess.Tier, elapsed, parts[0])
 	channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
 }
 
-func (s *Server) interactiveSession(sl *siteListener, channel ssh.Channel, tier string) {
-	fmt.Fprintf(channel, "ssh-web/0.1 ready (tier: %s)\n> ", tier)
+func (s *Server) interactiveSession(sl *siteListener, channel ssh.Channel, sess commands.SessionInfo) {
+	fmt.Fprintf(channel, "ssh-web/0.1 ready (tier: %s)\n> ", sess.Tier)
 
 	buf := make([]byte, 4096)
 	for {
@@ -296,23 +297,23 @@ func (s *Server) interactiveSession(sl *siteListener, channel ssh.Channel, tier 
 		}
 
 		parts := strings.Fields(line)
-		log.Printf("[%s] (tier=%s) shell: %s %s", sl.site.Host, tier, parts[0], strings.Join(parts[1:], " "))
+		log.Printf("[%s] (tier=%s) shell: %s %s", sl.site.Host, sess.Tier, parts[0], strings.Join(parts[1:], " "))
 
-		if !sl.limiter.Allow(tier) {
-			log.Printf("[%s] (tier=%s) rate-limited: %s", sl.site.Host, tier, parts[0])
-			fmt.Fprintf(channel, "error: rate limit exceeded for tier %q\n> ", tier)
+		if !sl.limiter.Allow(sess.Tier) {
+			log.Printf("[%s] (tier=%s) rate-limited: %s", sl.site.Host, sess.Tier, parts[0])
+			fmt.Fprintf(channel, "error: rate limit exceeded for tier %q\n> ", sess.Tier)
 			continue
 		}
 
 		start := time.Now()
-		resp, err := sl.handler.Execute(parts[0], parts[1:], tier)
+		resp, err := sl.handler.Execute(parts[0], parts[1:], sess)
 		elapsed := time.Since(start)
 		if err != nil {
-			log.Printf("[%s] (tier=%s) error after %s: %v", sl.site.Host, tier, elapsed, err)
+			log.Printf("[%s] (tier=%s) error after %s: %v", sl.site.Host, sess.Tier, elapsed, err)
 			fmt.Fprintf(channel, "error: %v\n> ", err)
 			continue
 		}
-		log.Printf("[%s] (tier=%s) ok in %s: %s", sl.site.Host, tier, elapsed, parts[0])
+		log.Printf("[%s] (tier=%s) ok in %s: %s", sl.site.Host, sess.Tier, elapsed, parts[0])
 		fmt.Fprintf(channel, "%s\n> ", resp)
 	}
 }

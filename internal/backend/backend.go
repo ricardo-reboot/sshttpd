@@ -1,13 +1,10 @@
-// Package backend implements the upstream HTTP proxy for api-call and mcp commands.
+// Package backend implements the upstream HTTP proxy for api-call and
+// receive-pack commands.
 //
 // When a site config specifies `backend http://host:port`, sshttpd forwards
-// api-call requests to <backend><path> and MCP invocations to
-// <backend>/mcp/<tool> as POST requests with the validated parameters as JSON.
-//
-// This is what turns sshttpd into a reverse proxy for an existing HTTP service:
-// the application backend doesn't change, sshttpd translates SSH-Web commands
-// into the same HTTP calls the application already receives from a traditional
-// frontend like Caddy or nginx.
+// requests to <backend><path>. SSH session identity (tier and key fingerprint)
+// is forwarded via X-SSHWeb-Tier and X-SSHWeb-Fingerprint headers so the
+// backend can make authorization and content decisions.
 package backend
 
 import (
@@ -44,8 +41,9 @@ func New(baseURL string) (*Backend, error) {
 }
 
 // APICall forwards an api-call to the backend as method+path with the given body.
-// Returns the response body on success, or an error including the upstream status.
-func (b *Backend) APICall(method, path string, body []byte, identityHeader string) ([]byte, int, error) {
+// SSH session identity is forwarded via X-SSHWeb-Tier and X-SSHWeb-Fingerprint headers
+// so the backend can make authorization and content decisions.
+func (b *Backend) APICall(method, path string, body []byte, tier, fingerprint string) ([]byte, int, error) {
 	target := b.BaseURL + path
 	req, err := http.NewRequest(method, target, bytes.NewReader(body))
 	if err != nil {
@@ -54,8 +52,11 @@ func (b *Backend) APICall(method, path string, body []byte, identityHeader strin
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if identityHeader != "" {
-		req.Header.Set("X-SSHWeb-Identity", identityHeader)
+	if tier != "" {
+		req.Header.Set("X-SSHWeb-Tier", tier)
+	}
+	if fingerprint != "" {
+		req.Header.Set("X-SSHWeb-Fingerprint", fingerprint)
 	}
 	resp, err := b.Client.Do(req)
 	if err != nil {
@@ -75,18 +76,17 @@ func (b *Backend) APICall(method, path string, body []byte, identityHeader strin
 
 // FetchResource performs a GET to <BaseURL><path> and returns the live *http.Response.
 // The caller is responsible for draining and closing the response body.
-//
-// The backend URL is configured server-side, so no allowlist check is needed here —
-// the operator controls what host is contacted.
-//
-// TODO: forward X-SSHWeb-Identity from the SSH session to let the backend act
-// on SSH auth tier (same pattern as APICall). Omitted for now; document as a trust
-// boundary: today the backend receives anonymous HTTP requests.
-func (b *Backend) FetchResource(path string) (*http.Response, error) {
+func (b *Backend) FetchResource(path, tier, fingerprint string) (*http.Response, error) {
 	target := b.BaseURL + path
 	req, err := http.NewRequest(http.MethodGet, target, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building request: %w", err)
+	}
+	if tier != "" {
+		req.Header.Set("X-SSHWeb-Tier", tier)
+	}
+	if fingerprint != "" {
+		req.Header.Set("X-SSHWeb-Fingerprint", fingerprint)
 	}
 	resp, err := b.Client.Do(req)
 	if err != nil {

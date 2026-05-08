@@ -15,6 +15,8 @@ import (
 	"github.com/bugscave/sshttpd/internal/config"
 )
 
+var anonSess = SessionInfo{Tier: auth.TierAnonymous}
+
 func newTestHandler(t *testing.T, site config.SiteConfig) *Handler {
 	t.Helper()
 	cfg := &config.Config{Sites: []config.SiteConfig{site}}
@@ -32,7 +34,7 @@ func TestExecute_RejectsUnauthorized(t *testing.T) {
 			Anonymous: []string{"receive-pack"},
 		},
 	})
-	_, err := h.Execute("api-call", []string{"GET", "/x"}, auth.TierAnonymous)
+	_, err := h.Execute("api-call", []string{"GET", "/x"}, anonSess)
 	if err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("expected permission denied, got %v", err)
 	}
@@ -43,7 +45,7 @@ func TestExecute_CapabilitiesAlwaysAllowed(t *testing.T) {
 		Host: "test",
 		Auth: config.AuthConfig{},
 	})
-	resp, err := h.Execute("capabilities", nil, auth.TierAnonymous)
+	resp, err := h.Execute("capabilities", nil, anonSess)
 	if err != nil {
 		t.Fatalf("capabilities should always be allowed: %v", err)
 	}
@@ -68,7 +70,7 @@ func TestExecute_ReceivePackText(t *testing.T) {
 		Auth: config.AuthConfig{Anonymous: []string{"receive-pack"}},
 	})
 
-	resp, err := h.Execute("receive-pack", []string{"/"}, auth.TierAnonymous)
+	resp, err := h.Execute("receive-pack", []string{"/"}, anonSess)
 	if err != nil {
 		t.Fatalf("receive-pack: %v", err)
 	}
@@ -93,7 +95,7 @@ func TestExecuteBinary_ReceivePackHasPACKHeader(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := h.ExecuteBinary("receive-pack", []string{"/"}, auth.TierAnonymous, &buf); err != nil {
+	if err := h.ExecuteBinary("receive-pack", []string{"/"}, anonSess, &buf); err != nil {
 		t.Fatalf("ExecuteBinary: %v", err)
 	}
 	got := buf.Bytes()
@@ -144,13 +146,13 @@ func TestExecute_APICallRequiresConfiguredRoute(t *testing.T) {
 	})
 
 	// Authorized but not configured.
-	_, err := h.Execute("api-call", []string{"GET", "/api/notconfigured"}, auth.TierAnonymous)
+	_, err := h.Execute("api-call", []string{"GET", "/api/notconfigured"}, anonSess)
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
 		t.Errorf("expected not-configured error, got %v", err)
 	}
 
 	// Configured but no backend.
-	_, err = h.Execute("api-call", []string{"GET", "/api/items"}, auth.TierAnonymous)
+	_, err = h.Execute("api-call", []string{"GET", "/api/items"}, anonSess)
 	if err == nil || !strings.Contains(err.Error(), "no backend") {
 		t.Errorf("expected no-backend error, got %v", err)
 	}
@@ -160,7 +162,7 @@ func TestExecute_UnknownCommand(t *testing.T) {
 	h := newTestHandler(t, config.SiteConfig{
 		Auth: config.AuthConfig{Anonymous: []string{"frobnicate"}},
 	})
-	_, err := h.Execute("frobnicate", nil, auth.TierAnonymous)
+	_, err := h.Execute("frobnicate", nil, anonSess)
 	if err == nil || !strings.Contains(err.Error(), "unknown command") {
 		t.Errorf("expected unknown-command error, got %v", err)
 	}
@@ -181,7 +183,7 @@ func TestReceivePackBinary_FilesystemMode(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := h.ExecuteBinary("receive-pack", []string{"/"}, auth.TierAnonymous, &buf); err != nil {
+	if err := h.ExecuteBinary("receive-pack", []string{"/"}, anonSess, &buf); err != nil {
 		t.Fatalf("ExecuteBinary receive-pack (fs mode): %v", err)
 	}
 	if string(buf.Bytes()[:4]) != "PACK" {
@@ -209,7 +211,7 @@ func TestReceivePackBinary_BackendFallback(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := h.ExecuteBinary("receive-pack", []string{"/"}, auth.TierAnonymous, &buf); err != nil {
+	if err := h.ExecuteBinary("receive-pack", []string{"/"}, anonSess, &buf); err != nil {
 		t.Fatalf("ExecuteBinary receive-pack (backend fallback): %v", err)
 	}
 
@@ -240,7 +242,7 @@ func TestReceivePackBinary_NeitherRootNorBackend(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	err := h.ExecuteBinary("receive-pack", []string{"/"}, auth.TierAnonymous, &buf)
+	err := h.ExecuteBinary("receive-pack", []string{"/"}, anonSess, &buf)
 	if err == nil {
 		t.Fatal("expected error when neither root nor backend configured, got nil")
 	}

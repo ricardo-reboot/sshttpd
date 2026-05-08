@@ -19,13 +19,14 @@ func TestNew_EmptyURLReturnsNil(t *testing.T) {
 }
 
 func TestAPICall_ForwardsMethodPathAndBody(t *testing.T) {
-	var gotMethod, gotPath, gotBody, gotIdentity string
+	var gotMethod, gotPath, gotBody, gotTier, gotFP string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotPath = r.URL.Path
 		body, _ := io.ReadAll(r.Body)
 		gotBody = string(body)
-		gotIdentity = r.Header.Get("X-SSHWeb-Identity")
+		gotTier = r.Header.Get("X-SSHWeb-Tier")
+		gotFP = r.Header.Get("X-SSHWeb-Fingerprint")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
@@ -36,7 +37,7 @@ func TestAPICall_ForwardsMethodPathAndBody(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, status, err := b.APICall("POST", "/api/items", []byte(`{"x":1}`), "fp:abc")
+	resp, status, err := b.APICall("POST", "/api/items", []byte(`{"x":1}`), "identified", "SHA256:abc123")
 	if err != nil {
 		t.Fatalf("APICall: %v", err)
 	}
@@ -52,8 +53,11 @@ func TestAPICall_ForwardsMethodPathAndBody(t *testing.T) {
 	if gotBody != `{"x":1}` {
 		t.Errorf("body=%q want %q", gotBody, `{"x":1}`)
 	}
-	if gotIdentity != "fp:abc" {
-		t.Errorf("identity header=%q want fp:abc", gotIdentity)
+	if gotTier != "identified" {
+		t.Errorf("tier header=%q want identified", gotTier)
+	}
+	if gotFP != "SHA256:abc123" {
+		t.Errorf("fingerprint header=%q want SHA256:abc123", gotFP)
 	}
 	if !strings.Contains(string(resp), "ok") {
 		t.Errorf("response=%q expected to contain 'ok'", resp)
@@ -67,7 +71,7 @@ func TestAPICall_PropagatesUpstreamErrors(t *testing.T) {
 	defer srv.Close()
 
 	b, _ := New(srv.URL)
-	body, status, err := b.APICall("GET", "/x", nil, "")
+	body, status, err := b.APICall("GET", "/x", nil, "", "")
 	if err == nil {
 		t.Fatalf("expected error for upstream 502")
 	}

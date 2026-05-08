@@ -77,8 +77,15 @@ func (h *Handler) site() config.SiteConfig {
 	return h.cfg.Sites[h.siteIdx]
 }
 
+// SessionInfo carries identity metadata from the SSH connection into
+// command handlers and onward to backend requests.
+type SessionInfo struct {
+	Tier        string // "anonymous", "identified", or "trusted"
+	Fingerprint string // SHA256 key fingerprint, empty for anonymous
+}
+
 // Execute runs a command and returns the response string (text-mode for interactive sessions).
-func (h *Handler) Execute(cmd string, args []string, tier string) (string, error) {
+func (h *Handler) Execute(cmd string, args []string, sess SessionInfo) (string, error) {
 	site := h.site()
 
 	// Authorization: capabilities is always allowed; other commands must be in the
@@ -86,8 +93,8 @@ func (h *Handler) Execute(cmd string, args []string, tier string) (string, error
 	// trusted gets everything).
 	if cmd != "capabilities" {
 		fullCommand := joinCommand(cmd, args)
-		if !auth.IsCommandAllowed(tier, fullCommand, &site.Auth) {
-			return "", fmt.Errorf("permission denied: %q not allowed for tier %q", fullCommand, tier)
+		if !auth.IsCommandAllowed(sess.Tier, fullCommand, &site.Auth) {
+			return "", fmt.Errorf("permission denied: %q not allowed for tier %q", fullCommand, sess.Tier)
 		}
 	}
 
@@ -97,7 +104,7 @@ func (h *Handler) Execute(cmd string, args []string, tier string) (string, error
 	case "receive-pack":
 		return h.receivePack(args)
 	case "api-call":
-		return h.apiCall(args)
+		return h.apiCall(args, sess)
 	case "proxy-call":
 		return h.proxyCall(args)
 	case "rss-feed":
@@ -107,7 +114,7 @@ func (h *Handler) Execute(cmd string, args []string, tier string) (string, error
 	case "robots":
 		return h.robots()
 	case "mcp":
-		return h.mcp(args)
+		return h.mcp(args, sess)
 	default:
 		return "", fmt.Errorf("unknown command: %s", cmd)
 	}
@@ -123,24 +130,24 @@ func joinCommand(cmd string, args []string) string {
 // ExecuteBinary runs a command and writes binary output (for exec-mode SSH channels).
 // Used for receive-pack so the client gets real packfile bytes, not the text summary.
 // Falls back to writing the text response when no binary form is defined.
-func (h *Handler) ExecuteBinary(cmd string, args []string, tier string, w io.Writer) error {
+func (h *Handler) ExecuteBinary(cmd string, args []string, sess SessionInfo, w io.Writer) error {
 	site := h.site()
 
 	if cmd != "capabilities" {
 		fullCommand := joinCommand(cmd, args)
-		if !auth.IsCommandAllowed(tier, fullCommand, &site.Auth) {
-			return fmt.Errorf("permission denied: %q not allowed for tier %q", fullCommand, tier)
+		if !auth.IsCommandAllowed(sess.Tier, fullCommand, &site.Auth) {
+			return fmt.Errorf("permission denied: %q not allowed for tier %q", fullCommand, sess.Tier)
 		}
 	}
 
 	switch cmd {
 	case "receive-pack":
-		return h.receivePackBinary(args, w)
+		return h.receivePackBinary(args, sess, w)
 	case "proxy-call":
 		return h.proxyCallBinary(args, w)
 	default:
 		// Fall back to text mode for commands without a binary form.
-		resp, err := h.Execute(cmd, args, tier)
+		resp, err := h.Execute(cmd, args, sess)
 		if err != nil {
 			return err
 		}
@@ -286,7 +293,7 @@ func tierForCommand(command string, authCfg *config.AuthConfig) string {
 //     response (status line + CRLF headers + blank line + body), same shape as
 //     proxyCallBinary. The browser ResourceLoader reads this directly.
 //  3. If neither condition is met: return an error.
-func (h *Handler) receivePackBinary(args []string, w io.Writer) error {
+func (h *Handler) receivePackBinary(args []string, sess SessionInfo, w io.Writer) error {
 	site := h.site()
 
 	// Attempt filesystem mode when root is set.
@@ -312,7 +319,7 @@ func (h *Handler) receivePackBinary(args []string, w io.Writer) error {
 		path = args[0]
 	}
 
-	resp, err := h.backend.FetchResource(path)
+	resp, err := h.backend.FetchResource(path, sess.Tier, sess.Fingerprint)
 	if err != nil {
 		return err
 	}
@@ -541,7 +548,7 @@ func (h *Handler) robots() (string, error) {
 
 // mcp invokes a tool on the proxied MCP server. The first arg is the tool name;
 // remaining args are key=value parameter pairs forwarded as tool arguments.
-func (h *Handler) mcp(args []string) (string, error) {
+func (h *Handler) mcp(args []string, sess SessionInfo) (string, error) {
 	if len(args) == 0 {
 		return "", fmt.Errorf("usage: mcp TOOL_NAME [key=value...]")
 	}
@@ -587,16 +594,13 @@ func mcpToolTier(toolName string, mcpAuth *config.MCPAuthConfig) string {
 // Usage: api-call METHOD /path [body-json]
 // When no backend is configured, returns a not-implemented error so clients
 // know the site exposes the route but has no handler wired up.
-func (h *Handler) apiCall(args []string) (string, error) {
+func (h *Handler) apiCall(args []string, sess SessionInfo) (string, error) {
 	if len(args) < 2 {
 		return "", fmt.Errorf("usage: api-call METHOD /path [body]")
 	}
 	method := strings.ToUpper(args[0])
 	path := args[1]
 
-	// Verify the (METHOD, route) is one the config exposes. The auth check
-	// already passed; this prevents api-call from reaching arbitrary backend
-	// routes the operator didn't intend to expose.
 	if !h.routeAllowed("api-call", method, path) {
 		return "", fmt.Errorf("api-call %s %s not configured", method, path)
 	}
@@ -610,9 +614,8 @@ func (h *Handler) apiCall(args []string) (string, error) {
 		body = []byte(strings.Join(args[2:], " "))
 	}
 
-	resp, status, err := h.backend.APICall(method, path, body, "")
+	resp, status, err := h.backend.APICall(method, path, body, sess.Tier, sess.Fingerprint)
 	if err != nil {
-		// Include the body so callers can see the upstream error detail.
 		return "", fmt.Errorf("backend error (status %d): %w; body=%s", status, err, string(resp))
 	}
 	return string(resp), nil
