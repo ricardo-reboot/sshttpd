@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Why SSH-Web? — SSH-Web Example</title>
+    <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+    <nav style="padding: 0.75rem 1.5rem; font-family: system-ui, sans-serif; font-size: 0.9rem; background: rgba(255,255,255,0.04); border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <a href="/" style="color: #7dd3fc; text-decoration: none;">&larr; Home</a>
+    </nav>
+    <header>
+        <h1>Why SSH-Web?</h1>
+        <p><time datetime="2026-05-05">May 5, 2026</time></p>
+    </header>
+    <main>
+        <article>
+            <h2>The problem with HTTPS</h2>
+            <p>HTTPS bolts encryption onto a plaintext protocol via a
+            trust hierarchy of certificate authorities. SSH-Web starts from
+            SSH's encrypted, authenticated foundation and builds web
+            semantics on top.</p>
+
+            <h2>Structural privacy</h2>
+            <p>On an SSH-Web site, third parties never see the client.
+            External resources (fonts, CDN assets) are server-proxied
+            through an allowlist. No tracking pixels, no cross-origin
+            leaks, no ambient authority.</p>
+
+            <h2>Identity via keypair</h2>
+            <p>No passwords, no OAuth flows, no third-party identity
+            providers. Your ed25519 keypair is your identity. The server
+            knows your public key; you prove you hold the private key.
+            That's it.</p>
+        </article>
+    </main>
+</body>
+</html>
