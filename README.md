@@ -52,6 +52,10 @@ Key properties:
 - [ ] Incremental `receive-pack` (`--have` over the wire)
 - [ ] On-disk `proxy-cache` storage (currently in-memory)
 - [ ] SNI-style routing of multiple sites on a shared port
+- [ ] Transport obfuscation (`transport obfs-tls`) — wrap SSH handshake to look like TLS traffic, defeating DPI (inspired by Tor pluggable transports / Shadowsocks)
+- [ ] Client-side command aliases and scripts (`~/.config/ssh-web/commands.conf`) — spec §6.1
+- [ ] Per-site config overrides (identity, aliases, watch) — spec §6.2
+- [ ] Hardware-bound keys (YubiKey/TPM) and key revocation lists — spec §6.3
 
 See [CHANGELOG.md](CHANGELOG.md) for a complete change log.
 
