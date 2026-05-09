@@ -4,6 +4,8 @@ All notable changes to the sshttpd reference implementation are documented here.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-05-09
+
 ### Added — identity, MCP proxy, and browser integration
 
 #### Identity wiring end-to-end

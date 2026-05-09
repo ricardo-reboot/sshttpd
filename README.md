@@ -80,6 +80,9 @@ examples/             Example site configuration
 
 ```bash
 go build -o sshttpd ./cmd/sshttpd
+
+# With version stamp:
+go build -ldflags "-X main.version=0.1.0" -o sshttpd ./cmd/sshttpd
 ```
 
 Tests:

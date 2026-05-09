@@ -12,9 +12,17 @@ import (
 	"github.com/bugscave/sshttpd/internal/server"
 )
 
+var version = "dev"
+
 func main() {
 	configPath := flag.String("config", "/etc/sshttpd/config", "path to configuration file")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("sshttpd", version)
+		return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
