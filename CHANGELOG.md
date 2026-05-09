@@ -4,6 +4,73 @@ All notable changes to the sshttpd reference implementation are documented here.
 
 ## [Unreleased]
 
+### Added — identity, MCP proxy, and browser integration
+
+#### Identity wiring end-to-end
+- **Pubkey forwarding to backend** via `X-SSHWeb-PubKey` header — backends receive
+  the full public key (with comment/display name) alongside `X-SSHWeb-Tier` and
+  `X-SSHWeb-Fingerprint`.
+- **Key registration flow**: demo backend `/register` endpoint appends the
+  connecting user's pubkey to `authorized_keys` with `tier=trusted`, then 302
+  redirects to `/`.
+- **Dynamic `authorized-keys` reload**: auth module re-reads the keys file on
+  every connection so newly registered keys take effect without daemon restart.
+- **Display name tracking**: `authorized-keys` parser preserves comment fields;
+  `Comment()` accessor exposes them for backend greeting pages.
+- **Server-side redirects (302)**: Go HTTP client no longer follows redirects
+  internally (`CheckRedirect: ErrUseLastResponse`), so 3xx responses reach the
+  browser for proper URL bar updates.
+- **SSH connection pool clear on page reload**: browser clears the connection
+  pool on navigation so identity changes take effect immediately (IPC chain:
+  ResourceLoader → SSHWebClient → SSHWebServer).
+
+#### Tier-gated content
+- **Per-post access control** in demo backend: posts can declare `min_tier`
+  (e.g. `"identified"`). Insufficient tier returns 403 with an access-denied page.
+- **Post listing UI**: clickable post links replace the old MCP tool listing;
+  inaccessible posts shown grayed-out with tier requirement.
+
+#### MCP proxy architecture
+- **New `internal/mcpproxy` package**: sshttpd spawns (stdio) or connects to
+  (HTTP SSE) an existing MCP server and proxies `tools/list` + `tools/call`.
+  Tool schemas come from the server's own `tools/list` response — no need to
+  re-declare them in sshttpd config.
+- **Per-tool auth tier control** via nested `auth { }` block inside `mcp { }`.
+- Replaces the old manual `mcp { tool name { params: [...] } }` config model.
+
+#### sshweb-mcp standalone server
+- **`cmd/sshweb-mcp`**: MCP server binary that connects to any sshttpd instance,
+  fetches `capabilities`, and dynamically exposes the site's MCP tools to Claude
+  or any MCP-compatible client.
+- SSH transport with host-key TOFU, configurable via `SSHWEB_HOST` / CLI flags.
+
+#### Claude Code plugin
+- **`plugin/`**: Claude Code plugin for automatic SSH-Web tool discovery.
+- Plugin manifest, build script, domain auto-detection hook (TCP probe on 22443),
+  and `/sshweb-connect` skill for interactive site connection.
+
+#### Identity forwarding to backend
+- **`X-SSHWeb-Tier` and `X-SSHWeb-Fingerprint` headers** threaded from the SSH
+  handshake through the command handler into all backend HTTP requests (`api-call`,
+  `receive-pack` fallback, `mcp`).
+
+#### Browser (Ladybird fork)
+- **Non-HTTP redirect support in navigation**: Navigable.cpp patched to allow
+  `ssh-web://` through the redirect loop (step 20) and reset fetch controller
+  for fresh fetches on redirect.
+- **URL bar update on redirect**: request URL list updated so
+  `Response::url()` returns the final destination.
+- **`clear_ssh_pool` IPC**: new message from ResourceLoader through SSHWebClient
+  to SSHWebServer, called before every non-proxy-call load.
+
+#### Examples & documentation
+- `examples/mock-backend.py`: full demo backend with identity greeting,
+  registration, post pages, and tier-gated content.
+- `examples/README.md`: setup guide for running the example site with MCP tools.
+- `examples/site/posts/`: blog post HTML pages for RSS/sitemap demos.
+
+---
+
 ### Added — reverse-proxy daemon feature pass
 
 #### Authorization & identity
